@@ -1,0 +1,87 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id       String  @id @unique @default(cuid())
+  username String  @unique
+  password String
+  avatarId String?
+  role     Role
+  spaces Space[]
+  avatar Avatars? @relation(fields: [avatarId],references: [id])
+}
+
+model Elements {
+  id         String @id @unique @default(cuid())
+  name       String
+  width      Int
+  height     Int
+  elementImg String
+  static  Boolean
+  spaceElements SpaceElements[]
+  mapElements MapElements[]
+}
+
+model Avatars {
+  id        String @id @unique @default(cuid())
+  avatarImg String
+  name      String
+  users User[]
+}
+
+model Maps {
+  id     String @id @unique @default(cuid())
+  name   String
+  height Int
+  thumbnail String?
+  width  Int
+  mapElements MapElements[]
+}
+
+model MapElements {
+  id        String @id @unique @default(cuid())
+  elementId String
+  mapId     String
+  x         Int
+  y         Int
+  map Maps @relation(fields: [mapId],references: [id], onDelete: Cascade)
+  element Elements @relation(fields: [elementId],references: [id])
+}
+
+model Space {
+  id        String @id @unique @default(cuid())
+  name      String
+  width     Int
+  height    Int
+  thumbnail String?
+  creatorId String
+  creator User  @relation(fields: [creatorId], references: [id])
+  spaceElements SpaceElements[] 
+}
+
+model SpaceElements {
+  id        String @id @unique @default(cuid())
+  x         Int
+  y         Int
+  spaceId   String
+  elementId String
+  space     Space   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  element   Elements  @relation(fields: [elementId],references: [id])
+}
+
+enum Role {
+  ADMIN
+  USER
+}
