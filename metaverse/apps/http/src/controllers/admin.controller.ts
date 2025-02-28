@@ -105,13 +105,14 @@ const createAvatar = authReqHandler(
             });
         }
     
-        const {name,avatarImg} = req.body;
+        const {name,avatarIdle,avatarRun} = req.body;
         
         try {
             const avatar = await client.avatars.create({
                 data: {
                     name,
-                    avatarImg
+                    avatarIdle,
+                    avatarRun
                 }
             });
             
@@ -143,7 +144,7 @@ const updateAvatar = authReqHandler(
         });
     }
 
-    const {avatarImg}= req.body
+    const {avatarIdle,avatarRun}= req.body
     const avatarId = req.params.avatarId;
     
     try {
@@ -152,7 +153,8 @@ const updateAvatar = authReqHandler(
                 id: avatarId
             },
             data: {
-                avatarImg
+                avatarIdle,
+                avatarRun
             }
         });
 
@@ -183,9 +185,10 @@ const createMap = authReqHandler(
             });
         }
     
-        const {dimensions,thumbnail,name,defaultElements} = req.body;
+        const {dimensions,thumbnail,name,defaultElements,bgImg} = req.body;
         const width = parseInt(dimensions.split('x')[0]);
         const height = parseInt(dimensions.split('x')[1]);
+
         try {
             const map = await client.maps.create({
                 data: {
@@ -193,6 +196,7 @@ const createMap = authReqHandler(
                     width,
                     height,
                     thumbnail,
+                    bgImg,
                     mapElements: {
                         create:defaultElements.map((e:any) => ({
                             elementId: e.elementId,

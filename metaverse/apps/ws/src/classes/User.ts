@@ -19,7 +19,8 @@ export class User{
     public id:string;
     public userId?:string;
     public username?: string;
-    private spaceId?:string;
+    public avatar?: {avatarIdle: string, avatarRun: string}
+    private space?: {spaceId: string,height:number,width:number};
     private x: number;
     private y: number;
     private ws: WebSocket;
@@ -47,6 +48,26 @@ export class User{
                     }
                     this.userId = userId;
 
+                    //get username and avatarImg from database:
+                    const user = await client.user.findUnique({
+                        where:{
+                            id: userId
+                        }
+                    })
+
+                    this.username = user?.username;
+
+                    const avatar = await client.avatars.findUnique({
+                        where:{
+                            id: user?.avatarId ?? ""
+                        }
+                    })
+                    if(!avatar) return;
+                    this.avatar = {
+                        avatarIdle: avatar.avatarIdle,
+                        avatarRun: avatar.avatarRun
+                    }
+
                     //verify spaceId:
                     const space = await client.space.findUnique({
                         where: {
@@ -66,7 +87,26 @@ export class User{
                         return;
                     }
                     
-                    this.spaceId = spaceId;
+                    this.space = {
+                        spaceId: spaceId,
+                        height: space.height,
+                        width: space.width
+                    }
+
+                    let isDuplicate = false;
+
+                    //check if user has already joined this space:
+                    RoomManager.getInstance().rooms.get(spaceId)?.forEach(u => {
+                        if(u.userId === this.userId){
+                            isDuplicate = true;
+                            return;
+                        }
+                    });
+
+                    if(isDuplicate){
+                        this.ws.close();
+                        return;
+                    }
 
                     //set spawn coords:
                     RoomManager.getInstance().addUser(spaceId,this);
@@ -82,7 +122,10 @@ export class User{
                                 x: this.x,
                                 y: this.y
                             },
-                            users: RoomManager.getInstance().rooms.get(spaceId)?.filter((x)=>(x.id!==this.id))
+                            username: this.username,
+                            avatar: this.avatar,
+                            users: RoomManager.getInstance().rooms.get(spaceId)?.filter((x)=>(x.id!==this.id)),
+                            space: space
                         }
                     });
 
@@ -94,23 +137,30 @@ export class User{
                             coords: {
                                 x: this.x,
                                 y: this.y
-                            } 
+                            },
+                            username: this.username,
+                            avatar: this.avatar,
                         }
-                    }, this ,this.spaceId!)
+                    }, this ,this.space!.spaceId)
 
                     break;
                 
-                case "move":
+                case "move": 
                     const moveX = parseInt(parseData.payload.coords.x);
                     const moveY = parseInt(parseData.payload.coords.y);
+                    const direction = parseData.payload.direction;
                     
                     const xDisplacement = Math.abs(this.x-moveX);
                     const yDisplacement = Math.abs(this.y-moveY);
                     
-
-                   if((xDisplacement < 5 && yDisplacement == 0) || (xDisplacement == 0 && yDisplacement < 5)){
+                    const outOfBounds= moveX < 0 || moveY < 0 || moveX>this.space!.width || moveY>this.space!.height;
+                    const validMove = (xDisplacement <= 1 && yDisplacement == 0) || (xDisplacement == 0 && yDisplacement <= 1);
+                    
+                    //check if user moved two blocks at once:
+                    if(validMove && !outOfBounds){
                         this.x = moveX;
                         this.y = moveY;
+
                         RoomManager.getInstance().broadcast({
                             type: "user-moved",
                             payload:{
@@ -118,10 +168,11 @@ export class User{
                                 coords: {
                                     x: this.x,
                                     y: this.y
-                                }
+                                },
+                                direction: direction
                             }
-                        }, this, this.spaceId!)
-                   }
+                        }, this, this.space!.spaceId);
+                    }
                     
                     this.send({
                         type: "movement-rejected",
@@ -144,8 +195,8 @@ export class User{
             payload: {
                 userId: this.userId
             }
-        },this,this.spaceId!);
-        RoomManager.getInstance().removeUser(this.spaceId!,this);
+        },this,this.space!.spaceId);
+        RoomManager.getInstance().removeUser(this.space!.spaceId,this);
     }
 
     send(payload: OutgoingMessage){

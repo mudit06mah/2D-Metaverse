@@ -38,7 +38,7 @@ export class RoomManager{
         }
         
         this.rooms.get(roomId)?.forEach((u)=>{
-            if(u.id !== user.id){
+            if(u.userId !== user.userId){
                 u.send(message);
             }
         });

@@ -35,7 +35,7 @@ const createSpace = authReqHandler(
         if(!mapId){
             let width = parseInt(dimensions.split("x")[0]);
             let height = parseInt(dimensions.split("x")[1]);
-
+            
             try {
                 const createdSpace = await client.space.create({
                     data:{
@@ -70,7 +70,8 @@ const createSpace = authReqHandler(
                 select: {
                     mapElements: true,
                     width: true,
-                    height: true
+                    height: true,
+                    bgImg: true
                 }
             });
             
@@ -83,8 +84,11 @@ const createSpace = authReqHandler(
                 });
             }
 
-            let width = dimensions?parseInt(dimensions.split("x")[0]) : map.width;
-            let height = dimensions?parseInt(dimensions.split("x")[1]) : map.height;
+            let width = parseInt(dimensions.split("x")[0]);
+            let height = parseInt(dimensions.split("x")[1]);
+            if(width > map.width)   width = map.width;
+            if(height > map.height)    height = map.height;
+
 
             try {
                 const space = await client.$transaction(async() => {
@@ -93,6 +97,7 @@ const createSpace = authReqHandler(
                             name,
                             width,
                             height,
+                            bgImg: map.bgImg,
                             creatorId: userId,
                         }
                     });

@@ -6,7 +6,7 @@ import { authReqHandler } from "../utils/asyncHandler";
 const updateUserMetadata =  authReqHandler(
     async(req: AuthenticatedRequest,res: Response) => {
         const {avatarId} = req.body;
-    
+        console.log(req.body);
         //checking request:
         const parseData = UpdateMetadataSchema.safeParse(req.body);
         if(!parseData.success){
@@ -74,7 +74,7 @@ const getUserMetadata = authReqHandler(
         .json({
             avatars: metadata.map(m => ({
                 userId: m.id,
-                avatarUrl: m.avatar?.avatarImg
+                avatar: {avatarIdle: m.avatar?.avatarIdle, avatarRun: m.avatar?.avatarRun}
             }))
         })
         return;

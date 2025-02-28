@@ -29,14 +29,15 @@ model Elements {
   width      Int
   height     Int
   elementImg String
-  static  Boolean
+  static     Boolean
   spaceElements SpaceElements[]
   mapElements MapElements[]
 }
 
 model Avatars {
   id        String @id @unique @default(cuid())
-  avatarImg String
+  avatarIdle  String
+  avatarRun   String
   name      String
   users User[]
 }
@@ -47,6 +48,7 @@ model Maps {
   height Int
   thumbnail String?
   width  Int
+  bgImg String
   mapElements MapElements[]
 }
 
@@ -66,6 +68,7 @@ model Space {
   width     Int
   height    Int
   thumbnail String?
+  bgImg     String?
   creatorId String
   creator User  @relation(fields: [creatorId], references: [id])
   spaceElements SpaceElements[] 

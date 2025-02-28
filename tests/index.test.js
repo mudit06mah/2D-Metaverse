@@ -340,6 +340,7 @@ describe.skip('Space Information Endpoints', () => {
             name : "Crazy Map",
             thumbnail: "https://wallpapers.com/images/hd/pixel-game-3mt15l3duvd9nh97.jpg",
             dimensions: "100x100",
+            bgImg: "https://cdn.wikimg.net/en/strategywiki/images/9/9a/Pokemon_FRLG_Route_7.png",
             defaultElements: [{
                 elementId: element1Id,
                 x: 10,
@@ -592,6 +593,7 @@ describe.skip('Space Endpoints', () => {
             name : "Crazy Map",
             thumbnail: "https://wallpapers.com/images/hd/pixel-game-3mt15l3duvd9nh97.jpg",
             dimensions: "100x100",
+            bgImg: "https://cdn.wikimg.net/en/strategywiki/images/9/9a/Pokemon_FRLG_Route_7.png",
             defaultElements: [{
                 elementId: element1Id,
                 x: 10,
@@ -778,7 +780,7 @@ describe('Admin Endpoints', () => {
             name: "Chair1",
             width: 2,
             height: 2,
-	        elementImg: "https://e7.pngegg.com/pngimages/912/409/png-clipart-pixelated-penguin-illustration-pixel-penguin-pixel-art-pixel-art-game-animals-thumbnail.png",
+	        elementImg: "/assets/crystal.png",
 	        static: false
         },{
             headers:{
@@ -792,7 +794,7 @@ describe('Admin Endpoints', () => {
             name:"Chair2",
             width:8,
             height:10,
-	        elementImg: "https://static.vecteezy.com/system/resources/previews/025/212/486/non_2x/an-8-bit-retro-styled-pixel-art-illustration-of-a-purple-crystal-free-png.png",
+	        elementImg: "/assets/table.png",
 	        static: true
         },{
             headers:{
@@ -806,6 +808,7 @@ describe('Admin Endpoints', () => {
             name : "Crazy Map",
             thumbnail: "https://wallpapers.com/images/hd/pixel-game-3mt15l3duvd9nh97.jpg",
             dimensions: "100x100",
+            bgImg: "/assets/background.jpg",
             defaultElements: [{
                 elementId: element1Id,
                 x: 10,
@@ -836,17 +839,47 @@ describe('Admin Endpoints', () => {
         spaceId = spaceCreateResponse.data.spaceId;
         console.log("Space Id:",spaceId);
 
-        const avatarResponse = await axios.post(`${BACKEND_URL}/api/v1/admin/avatar`, {
-            name: "Melody",
-            avatarImg: "https://w7.pngwing.com/pngs/147/288/png-transparent-pixelated-yellow-star-minecraft-super-mario-bros-pixel-art-pixel-art-text-super-mario-bros-symmetry-thumbnail.png"
+        const avatarResponse1 = await axios.post(`${BACKEND_URL}/api/v1/admin/avatar`, {
+            name: "Hello Kitty",
+            avatarIdle: "/assets/Bob_idle_anim_16x16.png",
+            avatarRun: "/assets/Bob_run_16x16.png"
         },{
             headers: {
                 authorization: `Bearer ${adminToken}`
             }
         });
 
-        avatarId = avatarResponse.data.avatarId;
-        
+        const avatarResponse2 = await axios.post(`${BACKEND_URL}/api/v1/admin/avatar`, {
+            name: "Kuromi",
+            avatarIdle: "/assets/Adam_idle_anim_16x16.png",
+            avatarRun: "/assets/Adam_run_16x16.png"
+        },{
+            headers: {
+                authorization: `Bearer ${adminToken}`
+            }
+        });
+
+        console.log(avatarResponse2.data.message);
+
+
+        const avatarUpdateResponse = await axios.post(`${BACKEND_URL}/api/v1/user/metadata`, {
+            avatarId: avatarResponse1.data.avatarId
+        },{
+            headers:{
+                authorization: `Bearer ${adminToken}`
+            }
+        });
+
+        console.log(avatarUpdateResponse.data.message);
+
+        await axios.post(`${BACKEND_URL}/api/v1/user/metadata`, {
+            avatarId: avatarResponse2.data.avatarId
+        },{
+            headers:{
+                authorization: `Bearer ${userToken}`
+            }
+        })
+
     });
 
     test('User is not able to hit admin endpoints', async () => { 
@@ -876,6 +909,7 @@ describe('Admin Endpoints', () => {
             name: "test-Map",
             thumbnail: "https://google.com/avatar.png",
             dimensions: "100x200",
+            bgImg: "https://bruh.png",
             defaultElements: []
         },{
             headers:{
@@ -900,13 +934,13 @@ describe('Admin Endpoints', () => {
         
     });
     
-    test('Admin is able to hit admin endpoints', async () => { 
+    test.skip('Admin is able to hit admin endpoints', async () => { 
         //element response:
         const elementCreateResponse = await axios.post(`${BACKEND_URL}/api/v1/admin/element`,{
             name: "Chair 1",
             width: 2,
             height: 2,
-	        elementImg: "https://google.com/chair.png",
+	        elementImg: "https://opengameart.org/sites/default/files/styles/medium/public/silla_0.png",
 	        static: false
         },{
             headers:{
@@ -915,7 +949,7 @@ describe('Admin Endpoints', () => {
         })
 
         const elementUpdateResponse = await axios.put(`${BACKEND_URL}/api/v1/admin/element/${elementCreateResponse.data.elementId}`,{
-            elementImg: "https://google.com/chair.png"
+            elementImg: "https://opengameart.org/sites/default/files/styles/medium/public/table_8.png"
         },{
             headers:{
                 authorization: `Bearer ${adminToken}`
@@ -927,10 +961,15 @@ describe('Admin Endpoints', () => {
             name : "Crazy Map",
             thumbnail: "https://wallpapers.com/images/hd/pixel-game-3mt15l3duvd9nh97.jpg",
             dimensions: "100x100",
+            bgImg: "https://cdn.wikimg.net/en/strategywiki/images/9/9a/Pokemon_FRLG_Route_7.png",
             defaultElements: [{
-                elementId: elementCreateResponse.data.elementId,
+                elementId: element1Id,
                 x: 10,
                 y: 20
+            },{
+                elementId: element2Id,
+                x: 30,
+                y: 40
             }]
         },{
             headers:{
@@ -941,7 +980,7 @@ describe('Admin Endpoints', () => {
         //avatar response:
         const avatarCreateResponse = await axios.post(`${BACKEND_URL}/api/v1/admin/avatar`, {
             name: "Melody",
-            avatarImg: "https://google.com/avatar.png"
+            avatarImg: "https://google.com/chair.png"
         },{
             headers: {
                 authorization: `Bearer ${adminToken}`

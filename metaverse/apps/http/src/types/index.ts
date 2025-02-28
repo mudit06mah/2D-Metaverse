@@ -23,7 +23,8 @@ export const UpdateMetadataSchema = z.object({
 export const CreateSpaceSchema = z.object({
     name: z.string(),
     dimensions: z.string().regex(/^[0-9]{1,4}x[0-9]{1,4}$/).optional(),
-    mapId: z.string().optional()
+    mapId: z.string().optional(),
+    bgImg: z.string().optional()
 });
 
 export const AddElementSchema = z.object({
@@ -37,7 +38,7 @@ export const CreateElementSchema = z.object({
     name: z.string(),
     width: z.number(),
     height: z.number(),
-    elementImg: z.string().url(),
+    elementImg: z.string(),
     static: z.boolean()
 });
 
@@ -47,22 +48,25 @@ export const DeleteElementSchema = z.object({
 })
 
 export const UpdateElementSchema = z.object({
-    elementImg: z.string().url()
+    elementImg: z.string()
 });
 
 export const CreateAvatarSchema = z.object({
     name: z.string(),
-    avatarImg: z.string().url()
+    avatarIdle: z.string(),
+    avatarRun: z.string()
 });
 
 export const UpdateAvatarSchema = z.object({
-    avatarImg: z.string().url()
+    avatarIdle: z.string(),
+    avatarRun: z.string()
 });
 
 export const CreateMapSchema = z.object({
     name: z.string(),
     dimensions: z.string().regex(/^[0-9]{1,4}x[0-9]{1,4}$/),
-    thumbnail: z.string().url(),
+    thumbnail: z.string(),
+    bgImg: z.string(),
     defaultElements: z.array(z.object({
         elementId: z.string(),
         x: z.number(),
