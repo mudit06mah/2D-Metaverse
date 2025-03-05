@@ -127,11 +127,12 @@ export class GameScene extends Scene {
       this.createStaticElement(element);
     })
     */
-
+    /*
     if(this.space?.bgImg){
       this.loadBackgroundImage();
     }
-
+    */
+   this.loadTiledMap();
   }
 
   private handleUserJoined(payload: Player) {
@@ -341,6 +342,77 @@ export class GameScene extends Scene {
     this.elements.push(sprite)
     return sprite
   }
+
+  private loadTiledMap() {
+
+    this.load.image("interior-tiles", "/assets/tiles/Interiors_free_16x16.png");
+    this.load.image("room-tiles", "/assets/tiles/Room_Builder_free_16x16.png");
+    this.load.tilemapTiledJSON("map","/assets/testMap.json");
+    this.load.once(Phaser.Loader.Events.COMPLETE,()=>{
+      this.createTiledMap();
+    }) 
+  }
+
+  private createTiledMap(){
+    const map = this.make.tilemap({key: "map"});
+    const interior_tileset = map.addTilesetImage("Interiors_free_16x16","interior-tiles");
+    const floor_tileset = map.addTilesetImage("Room_Builder_free_16x16","room-tiles");
+    const flooring  = map.createLayer("flooring",floor_tileset!);
+    const interior = map.createLayer("Interior",interior_tileset!);
+    const walls = map.createLayer("Walls", floor_tileset!);
+  }
+
+  /*
+  private createTiledMap(mapData: any) {
+    // Create a map using the Tiled JSON data
+    this.map = this.make.tilemap({ 
+      data: mapData,
+      tileWidth: this.space?.tileSize || this.TILE_SIZE,
+      tileHeight: this.space?.tileSize || this.TILE_SIZE
+    });
+    
+    // Add the tileset to the map
+    this.tileset = this.map.addTilesetImage('tiles');
+    
+    if (!this.tileset) {
+      console.error("Failed to create tileset");
+      return;
+    }
+    
+    // Create layers with correct depths
+    this.flooringLayer = this.map.createLayer('Flooring', this.tileset, 0, 0);
+    if (this.flooringLayer) {
+      this.flooringLayer.setDepth(0);
+    }
+    
+    this.interiorLayer = this.map.createLayer('Interior', this.tileset, 0, 0);
+    if (this.interiorLayer) {
+      this.interiorLayer.setDepth(2);
+      this.interiorLayer.setCollisionByProperty({ collides: true });
+      this.collisionLayers.push(this.interiorLayer);
+    }
+    
+    this.wallsLayer = this.map.createLayer('Walls', this.tileset, 0, 0);
+    if (this.wallsLayer) {
+      this.wallsLayer.setDepth(3);
+      this.wallsLayer.setCollisionByProperty({ collides: true });
+      this.collisionLayers.push(this.wallsLayer);
+    }
+    
+    // Set player depth between flooring and interior
+    if (this.currentPlayer) {
+      this.currentPlayer.setDepth(1);
+    }
+    
+    // Add physics between player and collision layers if we have a current player
+    if (this.currentPlayer && this.physics.world) {
+      this.collisionLayers.forEach(layer => {
+        if (layer) {
+          this.physics.add.collider(this.currentPlayer!, layer);
+        }
+      });
+    }
+  }*/
 
   update(time: number) {
     if (!this.currentPlayer || !this.currentPlayerId) return;
