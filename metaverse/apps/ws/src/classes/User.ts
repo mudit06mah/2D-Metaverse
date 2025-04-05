@@ -24,6 +24,7 @@ export class User{
     private x: number;
     private y: number;
     private ws: WebSocket;
+
     constructor(ws: WebSocket){
         this.id = getRandomString(10);
         this.ws = ws;
@@ -33,119 +34,120 @@ export class User{
     }
     
     initHandlers(){
-        this.ws.on("message",async(data)=>{
+        this.ws.addEventListener("message",async(event)=>{
+            const data = event.data;
             const parseData = JSON.parse(data.toString());
-            
+            if(parseData.class !== "game")  return;
             switch (parseData.type){
+
                 case "join":
-                    const token = parseData.payload.token;
-                    const spaceId = parseData.payload.spaceId;
-                    //verify token:
-                    const userId = (jwt.verify(token,JWT_PASSWORD) as JwtPayload).userId;
-                    if(!userId){
-                        this.ws.close();
-                        return;
-                    }
-                    this.userId = userId;
-
-                    //get username and avatarImg from database:
-                    const user = await client.user.findUnique({
-                        where:{
-                            id: userId
+                    try {
+                        const token = parseData.payload.token;
+                        const spaceId = parseData.payload.spaceId;
+                        //verify token:
+                        const userId = (jwt.verify(token,JWT_PASSWORD) as JwtPayload).userId;
+                        if(!userId){
+                            this.ws.close();
+                            throw new Error("invalid jwt token");
                         }
-                    })
+                        this.userId = userId;
 
-                    this.username = user?.username;
+                        //get username and avatarImg from database:
+                        const user = await client.user.findUnique({
+                            where:{
+                                id: userId
+                            }
+                        })
 
-                    const avatar = await client.avatars.findUnique({
-                        where:{
-                            id: user?.avatarId ?? ""
+                        this.username = user?.username;
+
+                        const avatar = await client.avatars.findUnique({
+                            where:{
+                                id: user?.avatarId ?? ""
+                            }
+                        })
+                        if(!avatar) throw new Error("avatar not found!");
+                        this.avatar = {
+                            avatarIdle: avatar.avatarIdle,
+                            avatarRun: avatar.avatarRun
                         }
-                    })
-                    if(!avatar) return;
-                    this.avatar = {
-                        avatarIdle: avatar.avatarIdle,
-                        avatarRun: avatar.avatarRun
-                    }
 
-                    //verify spaceId:
-                    const space = await client.space.findUnique({
-                        where: {
-                            id: spaceId
-                        },
-                        include: {
-                            spaceElements: {
-                                include: {
-                                    element: true
-                                }
+                        //verify spaceId:
+                        const space = await client.space.findUnique({
+                            where: {
+                                id: spaceId
                             },
-                        }
-                    });
+                            include: {
+                                spaceElements: {
+                                    include: {
+                                        element: true
+                                    }
+                                },
+                            }
+                        });
 
-                    if(!space){
-                        this.ws.close();
-                        return;
+                        if(!space){
+                            this.ws.close();
+                            throw new Error("Space not found");
+                        }
+                        
+                        this.space = {
+                            spaceId: spaceId,
+                            height: space.height,
+                            width: space.width
+                        }
+
+                        //check if user has already joined this space:
+                        RoomManager.getInstance().rooms.get(spaceId)?.forEach(u => {
+                            if(u.userId === this.userId){
+                                console.log("Same User found",u.username);
+                                throw new Error("user has already joined this space");
+                            }
+                        });
+
+
+                        //set spawn coords:
+                        RoomManager.getInstance().addUser(spaceId,this);
+                        this.x = Math.floor(Math.random()*space.height);
+                        this.y = Math.floor(Math.random()*space.width);
+
+                        //sendspace joined message to user:
+                        this.send({
+                            class: "game",
+                            type: "space-joined",
+                            payload: {
+                                userId: this.userId,
+                                spawn:{
+                                    x: this.x,
+                                    y: this.y
+                                },
+                                username: this.username,
+                                avatar: this.avatar,
+                                users: RoomManager.getInstance().rooms.get(spaceId)?.filter((x)=>(x.id!==this.id)),
+                                space: space
+                            }
+                        });
+
+                        //broadcast to other users:
+                        RoomManager.getInstance().broadcast({
+                            type: "user-joined",
+                            payload: {
+                                userId: this.userId,
+                                coords: {
+                                    x: this.x,
+                                    y: this.y
+                                },
+                                username: this.username,
+                                avatar: this.avatar,
+                            }
+                        }, this ,this.space!.spaceId)
+                    } catch (error) {
+                        console.log(error);
                     }
-                    
-                    this.space = {
-                        spaceId: spaceId,
-                        height: space.height,
-                        width: space.width
-                    }
-
-                    let isDuplicate = false;
-
-                    //check if user has already joined this space:
-                    RoomManager.getInstance().rooms.get(spaceId)?.forEach(u => {
-                        if(u.userId === this.userId){
-                            isDuplicate = true;
-                            return;
-                        }
-                    });
-
-                    if(isDuplicate){
-                        this.ws.close();
-                        return;
-                    }
-
-                    //set spawn coords:
-                    RoomManager.getInstance().addUser(spaceId,this);
-                    this.x = Math.floor(Math.random()*space.height);
-                    this.y = Math.floor(Math.random()*space.width);
-
-                    //sendspace joined message to user:
-                    this.send({
-                        type: "space-joined",
-                        payload: {
-                            userId: this.userId,
-                            spawn:{
-                                x: this.x,
-                                y: this.y
-                            },
-                            username: this.username,
-                            avatar: this.avatar,
-                            users: RoomManager.getInstance().rooms.get(spaceId)?.filter((x)=>(x.id!==this.id)),
-                            space: space
-                        }
-                    });
-
-                    //broadcast to other users:
-                    RoomManager.getInstance().broadcast({
-                        type: "user-joined",
-                        payload: {
-                            userId: this.userId,
-                            coords: {
-                                x: this.x,
-                                y: this.y
-                            },
-                            username: this.username,
-                            avatar: this.avatar,
-                        }
-                    }, this ,this.space!.spaceId)
 
                     break;
                 
-                case "move": 
+                case "move":
                     const moveX = parseInt(parseData.payload.coords.x);
                     const moveY = parseInt(parseData.payload.coords.y);
                     const direction = parseData.payload.direction;
@@ -160,8 +162,8 @@ export class User{
                     if(validMove && !outOfBounds){
                         this.x = moveX;
                         this.y = moveY;
-
                         RoomManager.getInstance().broadcast({
+                            class: "game",
                             type: "user-moved",
                             payload:{
                                 userId: this.userId,
@@ -172,9 +174,13 @@ export class User{
                                 direction: direction
                             }
                         }, this, this.space!.spaceId);
+
+                        break;
                     }
-                    
+
+                    console.log(parseData.payload);
                     this.send({
+                        class: "game",
                         type: "movement-rejected",
                         payload: {
                             coords: {

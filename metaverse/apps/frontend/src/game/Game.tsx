@@ -51,12 +51,21 @@ export default function Game({ token = "", spaceId = "" }: GameProps) {
 
         wsRef.current.onopen = () => {
           if(!wsRef.current)  return;
-          console.log("Scene init")
+          console.log("Scene init");
           scene.init({ wsClient: wsRef.current, token, spaceId })
         }
         
       }
     },1000)
+
+    window.addEventListener("unload",()=>{
+      if (wsRef.current) {
+        wsRef.current.close()
+      }
+      if (gameInstanceRef.current) {
+        gameInstanceRef.current.destroy(true)
+      }
+    })
 
     // Cleanup
     return () => {

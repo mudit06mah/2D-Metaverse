@@ -1,6 +1,7 @@
 import * as Phaser from "phaser"
 import { Scene } from "phaser"
 import { Player, GameElement, Space, WebSocketMessage, Direction, Avatar } from "../types/index.ts"
+import { MediasoupClient } from "../mediasoup/client.ts"
 
 export class GameScene extends Scene {
   private players: Map<string, Phaser.GameObjects.Sprite> = new Map()
@@ -16,44 +17,39 @@ export class GameScene extends Scene {
     D: Phaser.Input.Keyboard.Key
   }
   private direction : Direction = Direction.NONE;
-  private elements: Phaser.GameObjects.Sprite[] = [];
+  //private elements: Phaser.GameObjects.Sprite[] = [];
   private playerTexts: Map<string, Phaser.GameObjects.Text> = new Map();
   private wsClient: WebSocket | null = null;
+  private token?: string;
+  private spaceId?: string;
   private space?: Space;
   private moveTimer = 0;
-  private readonly MOVE_DELAY = 100 // Throttle movement updates
-  private readonly TILE_SIZE = 64
+  private readonly MOVE_DELAY = 100;// Throttle movement updates
+  private readonly TILE_SIZE = 64;
+  private coordMap: Map<string,string | null> = new Map();
+  private proximityList: Set<string> = new Set();
 
   constructor() {
     super({ key: "GameScene" })
   }
 
   init(data: { wsClient: WebSocket; token: string; spaceId: string }) {
-    this.wsClient = data.wsClient
+    this.wsClient = data.wsClient;
     if(!this.wsClient)  return;
+
+    this.token = data.token;
+    this.spaceId= data.spaceId;
     this.setupWebSocket()
-    console.log("JOINING")
-    // Join the space
-    this.wsClient.send(
-      JSON.stringify({
-        type: "join",
-        payload: {
-          token: data.token,
-          spaceId: data.spaceId,
-        },
-      }),
-    )
   }
 
   private setupWebSocket() {
     if(!this.wsClient){
       return;
     }
-    
-    this.wsClient.onmessage = (event) => {
+    this.wsClient.addEventListener("message",(event)=>{
       const message: WebSocketMessage = JSON.parse(event.data)
       this.handleWebSocketMessage(message)
-    }
+    })
     
     let interval = setInterval(()=> {
       if(this.wsClient?.readyState == 1){
@@ -65,21 +61,39 @@ export class GameScene extends Scene {
 
   private handleWebSocketMessage(message: WebSocketMessage) {
     switch (message.type) {
+      case "workers-created":
+        if(!this.wsClient)  return;
+        this.wsClient.send(
+          JSON.stringify({
+            class: "game",
+            type: "join",
+            payload: {
+              token: this.token,
+              spaceId: this.spaceId,
+            },
+          }),
+        );
+        break;
+
       case "space-joined":
-        this.handleSpaceJoined(message.payload)
-        break
+        this.handleSpaceJoined(message.payload);
+        break;
+
       case "user-joined":
-        this.handleUserJoined(message.payload)
-        break
+        this.handleUserJoined(message.payload);
+        break;
+
       case "user-moved":
-        this.handleUserMoved(message.payload)
-        break
+        this.handleUserMoved(message.payload);
+        break;
+
       case "user-left":
-        this.handleUserLeft(message.payload)
-        break
+        this.handleUserLeft(message.payload);
+        break;
+
       case "movement-rejected":
-        this.handleMovementRejected(message.payload)
-        break
+        this.handleMovementRejected(message.payload);
+        break;
     }
   }
 
@@ -105,7 +119,14 @@ export class GameScene extends Scene {
         height:e.element.height,
         static: e.element.static
       })),
-    }
+    };
+
+    console.log("SPACE JOINED");
+    if(!this.wsClient)  return;
+    const client = new MediasoupClient(this.wsClient,this.space.id,payload.userId);
+
+    //initialize coord map:
+    this.createCoordMap(payload.space.height,payload.space.width,payload.users);
 
     this.currentPlayerId = payload.userId
     console.log("users",payload.users);
@@ -120,23 +141,24 @@ export class GameScene extends Scene {
       if(user.userId != payload.userId){
         this.createPlayer(user.userId, user.username, user.x, user.y, user.avatar);
       }  
-    })
+    });
 
-    /* Create static elements
-    this.space.spaceElements.forEach((element) => {
-      this.createStaticElement(element);
-    })
-    */
-    /*
-    if(this.space?.bgImg){
-      this.loadBackgroundImage();
-    }
-    */
    this.loadTiledMap();
   }
 
+  private createCoordMap(height:number,width:number,users: Player[]){
+    for(let i=0;i<=height;i++){
+      for(let j=0;j<=width;j++){
+        this.coordMap.set(JSON.stringify([i,j]),null);
+      }
+    }
+
+    users.forEach((user)=> this.coordMap.set(JSON.stringify([user.x,user.y]),user.userId));
+  } 
+
   private handleUserJoined(payload: Player) {
     console.log("User Joined:",payload.userId);
+    this.coordMap.set(JSON.stringify([payload.x,payload.y]),payload.userId);
     if(payload.userId !== this.currentPlayerId)
       this.createPlayer(payload.userId, payload.username, payload.x, payload.y, payload.avatar)
   }
@@ -146,6 +168,26 @@ export class GameScene extends Scene {
     if (player) {
       // Store the player's last direction
       player.setData('lastDirection', payload.direction);
+
+      //Update position in coordinate map:
+      const coords = [payload.coords.x,payload.coords.y];
+      if(this.coordMap.get( JSON.stringify([coords[0]+1,coords[1]]) ) === payload.userId){
+        this.coordMap.set( JSON.stringify([coords[0]+1,coords[1]] ), null);
+      }
+
+      else if(this.coordMap.get( JSON.stringify([coords[0],coords[1]+1]) ) === payload.userId){
+        this.coordMap.set( JSON.stringify([coords[0],coords[1]+1]), null);
+      }
+
+      else if(this.coordMap.get( JSON.stringify([coords[0]-1,coords[1]]) ) === payload.userId){
+        this.coordMap.set( JSON.stringify([coords[0]-1,coords[1]]) , null);
+      }
+
+      else if(this.coordMap.get( JSON.stringify([coords[0],coords[1]-1]) ) === payload.userId){
+        this.coordMap.set( JSON.stringify([coords[0],coords[1]-1]) , null);
+      }
+
+      this.coordMap.set( JSON.stringify(coords),payload.userId);
       
       // Move the player to the new position
       player.setPosition(payload.coords.x * this.TILE_SIZE, payload.coords.y * this.TILE_SIZE);
@@ -215,25 +257,6 @@ export class GameScene extends Scene {
     if (this.space) {
       this.physics.world.setBounds(0, 0, this.space.width * this.TILE_SIZE, this.space.height * this.TILE_SIZE);
     }    
-  }
-
-  private loadBackgroundImage() {
-    if (!this.space?.bgImg) return
-
-    // Load background image
-    this.load.image("background", this.space.bgImg);
-    
-    this.load.once("complete", () => {
-      // Create background image
-      const worldWidth = this.space!.width * this.TILE_SIZE
-      const worldHeight = this.space!.height * this.TILE_SIZE
-      this.add.image(0, 0, "background")
-        .setOrigin(0 , 0)
-        .setDisplaySize(worldWidth,worldHeight)
-        .setDepth(-1);
-    });
-
-    this.load.start()
   }
 
   private createPlayer(userId: string, username: string, x: number, y: number, avatar: Avatar, isCurrent = false) {
@@ -327,22 +350,6 @@ export class GameScene extends Scene {
 
   }
 
-  private createStaticElement(element: GameElement) {
-    const sprite = this.add.sprite(element.x * this.TILE_SIZE, element.y * this.TILE_SIZE, "default-avatar")
-
-    // Load and set the actual element image
-    this.load.image(`element-${element.x}-${element.y}`, element.elementImg)
-    this.load.once(`filecomplete-image-element-${element.x}-${element.y}`, () => {
-      sprite.setTexture(`element-${element.x}-${element.y}`)
-    })
-    this.load.start()
-
-    sprite.setDisplaySize(element.width * this.TILE_SIZE, element.height * this.TILE_SIZE)
-
-    this.elements.push(sprite)
-    return sprite
-  }
-
   private loadTiledMap() {
 
     this.load.image("interior-tiles", "/assets/tiles/Interiors_free_16x16.png");
@@ -362,57 +369,64 @@ export class GameScene extends Scene {
     const walls = map.createLayer("Walls", floor_tileset!);
   }
 
-  /*
-  private createTiledMap(mapData: any) {
-    // Create a map using the Tiled JSON data
-    this.map = this.make.tilemap({ 
-      data: mapData,
-      tileWidth: this.space?.tileSize || this.TILE_SIZE,
-      tileHeight: this.space?.tileSize || this.TILE_SIZE
-    });
-    
-    // Add the tileset to the map
-    this.tileset = this.map.addTilesetImage('tiles');
-    
-    if (!this.tileset) {
-      console.error("Failed to create tileset");
-      return;
-    }
-    
-    // Create layers with correct depths
-    this.flooringLayer = this.map.createLayer('Flooring', this.tileset, 0, 0);
-    if (this.flooringLayer) {
-      this.flooringLayer.setDepth(0);
-    }
-    
-    this.interiorLayer = this.map.createLayer('Interior', this.tileset, 0, 0);
-    if (this.interiorLayer) {
-      this.interiorLayer.setDepth(2);
-      this.interiorLayer.setCollisionByProperty({ collides: true });
-      this.collisionLayers.push(this.interiorLayer);
-    }
-    
-    this.wallsLayer = this.map.createLayer('Walls', this.tileset, 0, 0);
-    if (this.wallsLayer) {
-      this.wallsLayer.setDepth(3);
-      this.wallsLayer.setCollisionByProperty({ collides: true });
-      this.collisionLayers.push(this.wallsLayer);
-    }
-    
-    // Set player depth between flooring and interior
-    if (this.currentPlayer) {
-      this.currentPlayer.setDepth(1);
-    }
-    
-    // Add physics between player and collision layers if we have a current player
-    if (this.currentPlayer && this.physics.world) {
-      this.collisionLayers.forEach(layer => {
-        if (layer) {
-          this.physics.add.collider(this.currentPlayer!, layer);
+  checkPlayersInProximity(newX: number, newY:number ){
+    const newProximityList: Set<any> = new Set();
+    //check 6x6 area:
+    for(let i=-3;i<=3;i++){
+      for(let j=-3;j<=3;j++){
+        if(this.coordMap.get( JSON.stringify([newX+i,newY+j]) )) {
+          newProximityList.add( this.coordMap.get( JSON.stringify([newX+i,newY+j]) ) );
         }
-      });
+      }
     }
-  }*/
+
+    //add users in proximity:
+    const addUsers: string[] = [];
+    newProximityList.forEach((userId)=>{
+      if(!this.proximityList.has(userId)){
+        //consume new users:
+        console.log("IN PROXIMITY:",userId);
+        addUsers.push(userId);
+      }
+    })
+
+    this.wsClient?.send(
+      JSON.stringify({
+        class: "mediasoup",
+        type:"add-consumers",
+        payload: {
+          userId: this.currentPlayerId,
+          users: addUsers
+        }
+      })
+    )
+
+    //remove  users not in proximity:
+    const removeUsers: string[] = [];
+    this.proximityList.forEach((userId)=>{
+      if(!newProximityList.has(userId)){
+        //remove consumers:
+        console.log("LEFT PROXIMITY:",userId);
+        removeUsers.push(userId);
+      }
+    })
+
+    this.wsClient?.send(
+      JSON.stringify({
+        class: "mediasoup",
+        type:"remove-consumers",
+        payload: {
+          userId: this.currentPlayerId,
+          users: removeUsers
+        }
+      })
+    );
+
+    //update proximity List:
+    this.proximityList = newProximityList;
+    //console.log(this.proximityList);
+  }
+
 
   update(time: number) {
     if (!this.currentPlayer || !this.currentPlayerId) return;
@@ -446,6 +460,9 @@ export class GameScene extends Scene {
         moved = true;
         this.direction = Direction.DOWN;
       }
+
+      //check for players in proximity:
+      this.checkPlayersInProximity(newX, newY);
   
       // Clear any existing animation timer
       if (sprite.getData('animTimer')) {
@@ -457,8 +474,10 @@ export class GameScene extends Scene {
         sprite.play(`${userId}-run-${this.direction}`);
         
         // Send movement to server
+
         this.wsClient!.send(
           JSON.stringify({
+            class: "game",
             type: "move",
             payload: {
               userId: this.currentPlayerId,
@@ -467,7 +486,7 @@ export class GameScene extends Scene {
             },
           }),
         );
-  
+
         // Update local position
         sprite.setPosition(newX * this.TILE_SIZE, newY * this.TILE_SIZE);
         
