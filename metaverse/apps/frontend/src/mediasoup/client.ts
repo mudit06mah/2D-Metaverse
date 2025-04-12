@@ -1,5 +1,5 @@
 import * as mediasoupClient from "mediasoup-client"
-import { Producer } from "mediasoup-client/lib/types";
+import { Consumer,Producer } from "mediasoup-client/lib/types";
 
 
 export class MediasoupClient{
@@ -12,6 +12,8 @@ export class MediasoupClient{
     private consumerTransport: mediasoupClient.types.Transport | null = null;
     private consumers = new Map();
     private producers = new Map();
+    private onNewConsumer: ((consumer:Consumer, peerId: string) => void) | null = null;
+    private onConsumerClosed: ((consumerId: string) => void) | null = null;
 
     constructor(ws: WebSocket, roomId: string, userId: string){
         this.device = new mediasoupClient.Device;
@@ -48,7 +50,6 @@ export class MediasoupClient{
         const {type, payload} = data;
         switch(type){
             case "joined-room":
-                console.log("JOINED");
                 const {peerId} = payload;
                 this.peerId = peerId;
                 this.send({
@@ -81,16 +82,12 @@ export class MediasoupClient{
                 this.handleConsumed(payload);
                 break;
             
-            case "producers":
-                
-                break;
-
             case "new-producer":
                 await this.consumeProducer(payload.producerId,payload.producerPeerId);
                 break;
             
             case "consumer-closed":
-                this.removeConsumer(payload.consumerId);
+                this.removeConsumer(payload.producerId);
                 break;
             
             case "peer-left":
@@ -123,7 +120,6 @@ export class MediasoupClient{
     }  
     
     private async initTransport(payload: any){
-        //console.log(payload);
         const {id,iceParameters,iceCandidates,dtlsParameters,sending} = payload;
 
         const transport = sending? 
@@ -131,7 +127,7 @@ export class MediasoupClient{
             id,
             iceParameters,
             iceCandidates,
-            dtlsParameters
+            dtlsParameters,
         }):
         this.device.createRecvTransport({
             id,
@@ -140,11 +136,11 @@ export class MediasoupClient{
             dtlsParameters
         });
 
-
         if(sending){
             this.producerTransport = transport;
-
+            console.log("connecting transport");
             transport.on("connect",async ({dtlsParameters},callback,errback)=>{
+                console.log("transport connected");
                 try {
                     this.send({
                         class: "mediasoup",
@@ -162,7 +158,7 @@ export class MediasoupClient{
             });
 
             transport.on("produce",async ({kind,rtpParameters})=>{
-                
+                console.log("produce request sent")
                 this.send({
                     class: "mediasoup",
                     type: "produce",
@@ -194,15 +190,11 @@ export class MediasoupClient{
                 }   
             })
 
-            this.send({
-                class: "mediasoup",
-                type: "get-producers",
-                payload: {}
-            })
         }
     }
 
     private handleProduced(payload: any){
+        console.log("user started producing");
         const {producerId}= payload;
 
         if(this.producers.size> 0){
@@ -224,11 +216,11 @@ export class MediasoupClient{
             rtpParameters: rtpParameters
         });
 
-        this.consumers.set(consumer.id,consumer);
-    }
+        this.consumers.set(producerId,consumer);
 
-    private async consumeProducers(producers: Producer[]){
-      //  producers.forEach((p)=>this.consumeProducer(p))
+        if(this.onNewConsumer){
+            this.onNewConsumer(consumer,producerId) 
+        }
     }
 
     private async consumeProducer(producerId: string, producerPeerId: string){
@@ -239,18 +231,22 @@ export class MediasoupClient{
             class: "mediasoup",
             type:"consume",
             payload: {
-                transportId: this.consumerTransport,
+                transportId: this.consumerTransport.id,
                 producerId: producerId,
                 rtpCapabilities: this.device.rtpCapabilities
             }
         });
     }
 
-    private removeConsumer(consumerId: string){
-        const consumer = this.consumers.get(consumerId);
+    private removeConsumer(producerId: string){
+        const consumer = this.consumers.get(producerId);
         if(consumer){
             consumer.close();
-            this.consumers.delete(consumerId);
+            this.consumers.delete(producerId);
+        }
+
+        if(this.onConsumerClosed){
+            this.onConsumerClosed(producerId) 
         }
     }
 
@@ -298,6 +294,18 @@ export class MediasoupClient{
         this.producers.set(producer.id,producer);
 
         return producer;
+    }
+
+    setOnNewConsumer(callback: ((consumer: Consumer,peerId: string) => void) | null ){
+        this.onNewConsumer = callback;
+    }
+
+    setOnConsumerClosed(callback: ((producerId: string) => void) | null){
+        this.onConsumerClosed = callback;
+    }
+
+    getConsumers(){
+        return this.consumers;
     }
 
     private close(){

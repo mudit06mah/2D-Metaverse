@@ -54,8 +54,8 @@ export function handleMediasoupMessage(ws: WebSocket){
     let roomId: string | null;
     let peerId: string | null;
     ws.addEventListener("message",async(event)=>{
-        const data = event.data;
-        const parseData = JSON.parse(data.toString());
+        const payload = event.data;
+        const parseData = JSON.parse(payload.toString());
         if(parseData.class !== "mediasoup") return;
 
         switch(parseData.type){
@@ -125,11 +125,11 @@ export function handleMediasoupMessage(ws: WebSocket){
                 if(!peer)   return;
 
                 console.log(transport);
-
+            
                 peer.send({ 
                     class: "mediasoup",
                     type: "transport-created",
-                    data: {
+                    payload: {
                         id: transport?.id,
                         iceParameters: transport?.iceParameters,
                         iceCandidates : transport?.iceCandidates,
@@ -159,13 +159,14 @@ export function handleMediasoupMessage(ws: WebSocket){
                 peer.send({ 
                     class: "mediasoup",
                     type: "transport-connected",
-                    data: {transportId}
+                    payload: {transportId}
                 });
 
                 break;
             }
 
             case "produce": {
+                console.log("prdouce recieved");
                 if(!roomId || !peerId)  return;
 
                 const room = rooms.get(roomId);
@@ -178,9 +179,10 @@ export function handleMediasoupMessage(ws: WebSocket){
                 const peer = room.getPeer(peerId);
                 if(!peer)   return;
 
-                peer.send({ class: "mediasoup",
+                peer.send({
+                    class: "mediasoup",
                     type: 'produced',
-                    data: {producerId}
+                    payload: {producerId}
                 });
 
                 break;
@@ -192,10 +194,10 @@ export function handleMediasoupMessage(ws: WebSocket){
                 const room = rooms.get(roomId);
                 if(!room)   return;
 
-                const {trasportId,producerId,rtpCapabilities} = parseData.payload;
+                const {transportId,producerId,rtpCapabilities} = parseData.payload;
                 const params = await room.consume(
                     peerId,
-                    trasportId,
+                    transportId,
                     producerId,
                     rtpCapabilities
                 );
@@ -212,34 +214,63 @@ export function handleMediasoupMessage(ws: WebSocket){
                 break;
             }
 
-            case "get-producers": {
-                if(!roomId || !peerId)  return;
 
+            case "add-producers": {
+                if(!roomId || !peerId)   return;
                 const room = rooms.get(roomId);
                 if(!room)   return;
-
-                const producers = room.getProducers(peerId);
-
-                const peer = room.getPeer(peerId);
-                if(!peer)   return;
-
-                peer.send({ 
-                    class: "mediasoup",
-                    type: "producers",
-                    payload: {
-                        producers
-                    }
-                });
                 
+                const {addUsers} = parseData.payload;
+                const peer = room.getPeer(peerId);
+
+                addUsers.forEach((userId: string)=>{
+                    const producerPeerId = room.userPeerMap.get(userId);
+                    if(!producerPeerId) return;
+            
+                    const producer = room.peerToProducer.get(producerPeerId);
+                    peer?.send({
+                        class: "mediasoup",
+                        type: "new-producer",
+                        payload:{
+                            producerId: producer?.id,
+                            producerPeerId
+                        }
+                    });
+                });
+
                 break;
             }
 
-            case "add-consumers": {
-                
+            case "remove-producers": {
+                if(!roomId || !peerId)   return;
+                const room = rooms.get(roomId);
+                if(!room)   return;
+
+                const {removeUsers} = parseData.payload;
+
+                const peer = room.getPeer(peerId);
+
+                removeUsers.forEach((userId:string)=>{
+                    const producerPeerId = room.userPeerMap.get(userId);
+                    if(!producerPeerId) return;
+                    const producer = room.peerToProducer.get(producerPeerId);
+                    if(!producer)   return;
+                    peer?.removeConsumer(producerPeerId);
+
+                    peer?.send({
+                        class: "mediasoup",
+                        type: "consumer-closed",
+                        payload: {
+                            producerId: producer.id
+                        }
+                    })
+                });
+
+                break;
             }
 
             case "leave-room":{
-                
+                /*
                 if(!roomId || !peerId)  return;
 
                 const room = rooms.get(roomId);
@@ -264,6 +295,7 @@ export function handleMediasoupMessage(ws: WebSocket){
                 roomId = null;
 
                 break;
+                */
             }
 
         }

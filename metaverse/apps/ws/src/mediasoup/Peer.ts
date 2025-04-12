@@ -67,13 +67,13 @@ export class Peer{
         }
         
         //add producer to producers list:
-        this.producers.set(peerId,producer)
+        this.producers.set(peerId,producer);
 
         //cleanup
         producer.on("transportclose", () => {
             producer.close();
             this.producers.delete(producer.id);
-        })
+        });
         
         return producer;
     }
@@ -102,13 +102,13 @@ export class Peer{
         }
 
         //add consumer to consumer list:
-        this.consumers.set(consumer?.id,consumer);
+        this.consumers.set(producerId,consumer);
 
         //cleanup:
         consumer.on("transportclose",()=>{
             consumer.close();
-            this.consumers.delete(consumer.id);
-        })
+            this.consumers.delete(producerId);
+        });
 
         return{
             consumer: consumer,
@@ -120,17 +120,21 @@ export class Peer{
                 type: consumer.type,
                 producerPaused: consumer.producerPaused
             }
-        } 
+        };
     }
 
-    closeProducer(producerId: string){
-        this.producers.get(producerId)?.close();
+    removeProducer(producerId: string){
         this.producers.delete(producerId);
     }
 
-    removeConsumer(consumerId: string){
-        this.consumers.delete(consumerId);
+    removeConsumer(consumerId: string) {
+        const consumer = this.consumers.get(consumerId);
+        if (consumer) {
+            consumer.close();
+            this.consumers.delete(consumerId);
+        }
     }
+    
 
     send(payload: OutgoingMessage){
         this.ws.send(JSON.stringify(payload));

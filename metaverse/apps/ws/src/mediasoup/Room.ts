@@ -6,7 +6,8 @@ export class Room{
     private id:string;
     private router?: Router
     private peers: Map<string,Peer>;
-    private userPeerMap: Map<string,string> = new Map();
+    public userPeerMap: Map<string,string> = new Map();
+    public peerToProducer: Map<string,Producer> = new Map();
 
     constructor(roomId:string, worker:Worker){
         this.id = roomId;
@@ -105,10 +106,7 @@ export class Room{
         const producer = await this.peers.get(peerId)?.createProducer(peerId,producerTransportId,rtpParameters,kind);
         if(!producer)   return;
         
-        this.broadcast(peerId,'new-producer',{
-            producerPeerId: peerId,
-            producerId: producer.id,
-        })
+        this.peerToProducer.set(peerId,producer);
 
         return producer.id;
     }
@@ -124,10 +122,10 @@ export class Room{
         const {consumer,params} = consumerData;
 
         consumer.on('producerclose', ()=>{
-            this.peers.get(peerId)?.removeConsumer(consumer.id);
+            this.peers.get(peerId)?.removeConsumer(producerId);
             this.broadcast(peerId,'consumer-closed',{
-                consumerId: consumer.id
-            })
+                producerId
+            });
         });
 
         return params;

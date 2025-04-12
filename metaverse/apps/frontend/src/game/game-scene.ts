@@ -28,6 +28,7 @@ export class GameScene extends Scene {
   private readonly TILE_SIZE = 64;
   private coordMap: Map<string,string | null> = new Map();
   private proximityList: Set<string> = new Set();
+  private mediasoupClient?: MediasoupClient
 
   constructor() {
     super({ key: "GameScene" })
@@ -40,6 +41,10 @@ export class GameScene extends Scene {
     this.token = data.token;
     this.spaceId= data.spaceId;
     this.setupWebSocket()
+  }
+
+  setMediasoupClient(client: MediasoupClient) {
+    this.mediasoupClient = client
   }
 
   private setupWebSocket() {
@@ -123,7 +128,7 @@ export class GameScene extends Scene {
 
     console.log("SPACE JOINED");
     if(!this.wsClient)  return;
-    const client = new MediasoupClient(this.wsClient,this.space.id,payload.userId);
+    this.mediasoupClient = new MediasoupClient(this.wsClient,this.space.id,payload.userId);
 
     //initialize coord map:
     this.createCoordMap(payload.space.height,payload.space.width,payload.users);
@@ -390,16 +395,17 @@ export class GameScene extends Scene {
       }
     })
 
-    this.wsClient?.send(
-      JSON.stringify({
-        class: "mediasoup",
-        type:"add-consumers",
-        payload: {
-          userId: this.currentPlayerId,
-          users: addUsers
-        }
-      })
-    )
+    if(addUsers.length){
+      this.wsClient?.send(
+        JSON.stringify({
+          class: "mediasoup",
+          type:"add-producers",
+          payload: {
+            addUsers
+          }
+        })
+      )
+    }    
 
     //remove  users not in proximity:
     const removeUsers: string[] = [];
@@ -411,16 +417,17 @@ export class GameScene extends Scene {
       }
     })
 
-    this.wsClient?.send(
-      JSON.stringify({
-        class: "mediasoup",
-        type:"remove-consumers",
-        payload: {
-          userId: this.currentPlayerId,
-          users: removeUsers
-        }
-      })
-    );
+    if(removeUsers.length){
+      this.wsClient?.send(
+        JSON.stringify({
+          class: "mediasoup",
+          type:"remove-producers",
+          payload: {
+            removeUsers
+          }
+        })
+      );
+    }
 
     //update proximity List:
     this.proximityList = newProximityList;
