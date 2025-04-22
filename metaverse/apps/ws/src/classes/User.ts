@@ -178,7 +178,6 @@ export class User{
                         break;
                     }
 
-                    console.log(parseData.payload);
                     this.send({
                         class: "game",
                         type: "movement-rejected",

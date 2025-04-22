@@ -829,7 +829,7 @@ describe('Admin Endpoints', () => {
         const spaceCreateResponse = await axios.post(`${BACKEND_URL}/api/v1/spaces`,{
             name : "test",
             mapId : mapId,
-            dimensions: "20x20" 
+            dimensions: "100x100" 
         },{
             headers:{
                 authorization: `Bearer ${userToken}`

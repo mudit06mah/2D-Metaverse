@@ -25,7 +25,8 @@ function GameContent({ token, spaceId }: GameProps) {
   const gameRef = useRef<HTMLDivElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const gameInstanceRef = useRef<Phaser.Game | null>(null)
-  const [mediasoupClient, setMediasoupClient] = useState<MediasoupClient | null>(null)
+  const {setMediasoupClient} = useMedia();
+  const [localClient,setLocalClient] = useState<MediasoupClient|null>(null);
 
   useEffect(() => {
     if (!gameRef.current) return
@@ -58,23 +59,29 @@ function GameContent({ token, spaceId }: GameProps) {
 
     // Waiting for scene:
     const interval = setInterval(() => {
-      const scene = gameInstanceRef.current!.scene.getScene("GameScene") as GameScene
+      const scene = gameInstanceRef.current!.scene.getScene("GameScene") as GameScene;
       if (scene) {
-        clearInterval(interval)
+        clearInterval(interval);
 
-        wsRef.current = new WebSocket("ws://localhost:3001")
+        wsRef.current = new WebSocket("ws://localhost:3001");
 
         wsRef.current.onopen = () => {
-          if (!wsRef.current) return
-          console.log("Scene init")
-          scene.init({ wsClient: wsRef.current, token, spaceId })
+          if (!wsRef.current) return;
 
-          // Create MediasoupClient instance
-          const client = new MediasoupClient(wsRef.current, spaceId, token)
-          setMediasoupClient(client)
+          const onProduceTransportCreated = (client: MediasoupClient) => {
+            setMediasoupClient(client);
+          }
+          
+          const onUserIdRecieved = (userId: string) => {
+            // Create MediasoupClient instance
+            const client = new MediasoupClient(wsRef.current!, spaceId, userId,onProduceTransportCreated); 
+            setLocalClient(client);
 
-          // Store the client reference in the scene for proximity detection
-          scene.setMediasoupClient(client)
+            // Store the client reference in the scene for proximity detection
+            scene.setMediasoupClient(client);
+          }
+
+          scene.init({ wsClient: wsRef.current, token, spaceId, onUserIdRecieved});
         }
       }
     }, 1000)
@@ -102,50 +109,44 @@ function GameContent({ token, spaceId }: GameProps) {
   return (
     <div className="w-full h-screen relative overflow-hidden">
       <div ref={gameRef} className="w-full h-full" />
-      <div className="fixed top-2 right-2 left-2 w-[10%] h-[10%] bg-amber-600">
+
         <VideoCallUI />
-      </div>
-      
-      {mediasoupClient && <MediasoupHandler mediasoupClient={mediasoupClient} />}
+        {localClient && <MediasoupHandler mediasoupClient={localClient} />}
     </div>
   )
 }
 
 // This component handles the mediasoup integration
 function MediasoupHandler({ mediasoupClient }: { mediasoupClient: MediasoupClient }) {
-  // Now this hook is safely used within the MediaProvider context
-  const { addRemoteStream, removeRemoteStream } = useMedia()
+  const { addOrUpdateRemoteStream, removeRemoteStream } = useMedia()
 
   useEffect(() => {
     if (!mediasoupClient) return
 
-    const handleNewConsumer = (consumer: Consumer, peerId: string) => {
-      const { track } = consumer
-      const stream = new MediaStream([track])
+    const handleNewConsumer = (consumer: Consumer, username: string) => {
+      const { track } = consumer;
 
-      addRemoteStream(peerId, stream)
+      addOrUpdateRemoteStream(username, track);
 
       consumer.on("trackended", () => {
-        removeRemoteStream(peerId)
+        removeRemoteStream(username);
       })
     }
 
-    const handleConsumerClosed = (consumerId: string) => {
-      // Since we don't have a direct mapping from consumerId to peerId,
-      // we might need to implement a more sophisticated tracking mechanism
-      // For now, we'll just log it
-      console.log("Consumer closed:", consumerId)
+    const handleConsumerClosed = (producerId: string) => {
+
+      removeRemoteStream(producerId);
     }
 
-    mediasoupClient.setOnNewConsumer(handleNewConsumer)
-    mediasoupClient.setOnConsumerClosed(handleConsumerClosed)
+    mediasoupClient.setOnNewConsumer(handleNewConsumer);
+    mediasoupClient.setOnConsumerClosed(handleConsumerClosed);
 
     return () => {
-      // Clean up by setting null callbacks
-      mediasoupClient.setOnNewConsumer(null)
-      mediasoupClient.setOnConsumerClosed(null)
+      // Clean up:
+      mediasoupClient.setOnNewConsumer(null);
+      mediasoupClient.setOnConsumerClosed(null);
     }
-  }, [mediasoupClient, addRemoteStream, removeRemoteStream])
+  }, [mediasoupClient, addOrUpdateRemoteStream, removeRemoteStream]);
 
   return null
 }

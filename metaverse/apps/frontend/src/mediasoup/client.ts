@@ -7,25 +7,27 @@ export class MediasoupClient{
     private ws: WebSocket;
     private roomId: string;
     private peerId: string | null = null;
-    private userId: string
+    private userId?: string
     private producerTransport: mediasoupClient.types.Transport | null = null;
     private consumerTransport: mediasoupClient.types.Transport | null = null;
-    private consumers = new Map();
+    private consumers: Map<string,Consumer[]> = new Map();
     private producers = new Map();
-    private onNewConsumer: ((consumer:Consumer, peerId: string) => void) | null = null;
+    private onNewConsumer: ((consumer:Consumer, producerId: string) => void) | null = null;
     private onConsumerClosed: ((consumerId: string) => void) | null = null;
+    private onProducerTransportCreated?: (client: MediasoupClient) => void;
+    private producerIdToUsername: Map<string,string> = new Map();
 
-    constructor(ws: WebSocket, roomId: string, userId: string){
+    constructor(ws: WebSocket, roomId: string, token: string, onProducerTransportCreated: (client: MediasoupClient) => void){
         this.device = new mediasoupClient.Device;
         this.ws = ws;
         this.roomId = roomId;
-        this.userId = userId;
+        this.onProducerTransportCreated = onProducerTransportCreated;
 
         this.ws.onopen = () => {
-            console.log("ws opened joining mediasoup");
-            
+            console.log("ws opened joining mediasoup");            
         }
-        this.joinRoom(this.roomId,this.userId)
+        
+        this.joinRoom(this.roomId,token);
         
         this.ws.addEventListener("message",(event)=>{
             const data = JSON.parse(event.data);
@@ -35,7 +37,6 @@ export class MediasoupClient{
     }
 
     private joinRoom(roomId: string,userId: string){
-        console.log("JOIN KARLE");
         this.send({
             class: "mediasoup",
             type: "join-room",
@@ -50,8 +51,10 @@ export class MediasoupClient{
         const {type, payload} = data;
         switch(type){
             case "joined-room":
-                const {peerId} = payload;
+                console.log("joined room recieved");
+                const {peerId,userId} = payload;
                 this.peerId = peerId;
+                this.userId = userId;
                 this.send({
                     class: "mediasoup",
                     type: "get-router-rtp-capabilities",
@@ -71,7 +74,7 @@ export class MediasoupClient{
                 break;
             
             case "transport-connected":
-                console.log("Tranposrt Connected", payload.tranposrtId)
+                console.log("Tranposrt Connected", payload.transportId)
                 break;
 
             case "produced":
@@ -79,11 +82,11 @@ export class MediasoupClient{
                 break;
             
             case "consumed":
-                this.handleConsumed(payload);
+                this.handleConsumed(payload.params,payload.username);
                 break;
             
             case "new-producer":
-                await this.consumeProducer(payload.producerId,payload.producerPeerId);
+                await this.consumeProducer(payload.username,payload.producerId,payload.producerPeerId);
                 break;
             
             case "consumer-closed":
@@ -117,7 +120,7 @@ export class MediasoupClient{
                 sending:false
             }
         });
-    }  
+    } 
     
     private async initTransport(payload: any){
         const {id,iceParameters,iceCandidates,dtlsParameters,sending} = payload;
@@ -138,6 +141,11 @@ export class MediasoupClient{
 
         if(sending){
             this.producerTransport = transport;
+
+            if(this.onProducerTransportCreated){
+                this.onProducerTransportCreated(this);
+            }
+            
             console.log("connecting transport");
             transport.on("connect",async ({dtlsParameters},callback,errback)=>{
                 console.log("transport connected");
@@ -157,17 +165,26 @@ export class MediasoupClient{
                 }   
             });
 
-            transport.on("produce",async ({kind,rtpParameters})=>{
-                console.log("produce request sent")
-                this.send({
-                    class: "mediasoup",
-                    type: "produce",
-                    payload: {
-                        producerTransportId: transport.id,
-                        rtpParameters,
-                        kind
-                    }
-                });
+            transport.on("produce", async ({kind, rtpParameters}, callback, errback) => {
+                console.log("produce request sent");
+                try {
+                    // Send the request to the server
+                    this.send({
+                        class: "mediasoup",
+                        type: "produce",
+                        payload: {
+                            producerTransportId: transport.id,
+                            rtpParameters,
+                            kind
+                        }
+                    });
+                    
+                    const tempId = Date.now().toString();
+                    callback({ id: tempId });
+                } catch (error) {
+                    console.error("Error in produce event:", error);
+                    //if (errback) errback(error);
+                }
             });
         }
         else{
@@ -204,8 +221,8 @@ export class MediasoupClient{
         }
     }
 
-    private async handleConsumed(payload: any){
-        const {id,kind,producerId,rtpParameters} = payload;
+    private async handleConsumed(params: any, username:string){
+        const {id,kind,producerId,rtpParameters} = params;
 
         if(!this.consumerTransport) return;
 
@@ -216,14 +233,15 @@ export class MediasoupClient{
             rtpParameters: rtpParameters
         });
 
-        this.consumers.set(producerId,consumer);
+        this.consumers.set(username,[...(this.consumers.get(username)??[]),consumer]);
+        this.producerIdToUsername.set(producerId,username);
 
         if(this.onNewConsumer){
-            this.onNewConsumer(consumer,producerId) 
+            this.onNewConsumer(consumer,username) 
         }
     }
 
-    private async consumeProducer(producerId: string, producerPeerId: string){
+    private async consumeProducer(username:string,producerId: string, producerPeerId: string){
         if(!this.device.loaded || !this.consumerTransport || this.peerId === producerPeerId)
             return;
 
@@ -231,6 +249,7 @@ export class MediasoupClient{
             class: "mediasoup",
             type:"consume",
             payload: {
+                username,
                 transportId: this.consumerTransport.id,
                 producerId: producerId,
                 rtpCapabilities: this.device.rtpCapabilities
@@ -239,15 +258,21 @@ export class MediasoupClient{
     }
 
     private removeConsumer(producerId: string){
-        const consumer = this.consumers.get(producerId);
-        if(consumer){
-            consumer.close();
-            this.consumers.delete(producerId);
-        }
-
-        if(this.onConsumerClosed){
-            this.onConsumerClosed(producerId) 
-        }
+        const username = this.producerIdToUsername.get(producerId);
+        if(!username)   return;
+        const consumers:Consumer[] = this.consumers.get(username) ?? [];
+        
+        consumers.forEach((consumer) => {
+            if(consumer){
+                consumer.close();
+                this.consumers.delete(username);
+            }
+    
+            if(this.onConsumerClosed && username){
+                this.onConsumerClosed(username) 
+            }
+        })
+        
     }
 
     private send(message: any){
@@ -260,17 +285,22 @@ export class MediasoupClient{
         if(!this.producerTransport){
             throw new Error("Producer Transport not created");
         }
+        console.log("produce Audio called");
 
-        const producer = await this.producerTransport.produce({
+        let producer: Producer;
+
+        producer = await this.producerTransport.produce({
             track:track,
             codecOptions:{
                 opusStereo: true,
                 opusDtx: true
             }
         });
+        console.log(producer);
 
         this.producers.set(producer.id,producer);
-
+        console.log(producer.id);
+        
         return producer;
     }
 
@@ -278,7 +308,9 @@ export class MediasoupClient{
         if(!this.producerTransport){
             throw new Error("Producer Transport not created");
         }
-
+        
+        console.log("produce Video Called");
+        
         const producer = await this.producerTransport.produce({
             track,
             encodings: [
@@ -292,6 +324,7 @@ export class MediasoupClient{
         })
 
         this.producers.set(producer.id,producer);
+        console.log(producer.id);
 
         return producer;
     }
@@ -311,7 +344,7 @@ export class MediasoupClient{
     private close(){
         console.log("closing client side");
         this.producers.forEach((producer)=> producer.close());
-        this.consumers.forEach((consumer)=> consumer.close());
+        this.consumers.forEach((c)=> c.forEach((consumer) => consumer.close()));
 
         if(this.producerTransport){
             this.producerTransport.close();

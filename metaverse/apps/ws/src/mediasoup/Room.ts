@@ -7,7 +7,7 @@ export class Room{
     private router?: Router
     private peers: Map<string,Peer>;
     public userPeerMap: Map<string,string> = new Map();
-    public peerToProducer: Map<string,Producer> = new Map();
+    public peerToProducer: Map<string,Producer[]> = new Map();
 
     constructor(roomId:string, worker:Worker){
         this.id = roomId;
@@ -105,8 +105,8 @@ export class Room{
     ){
         const producer = await this.peers.get(peerId)?.createProducer(peerId,producerTransportId,rtpParameters,kind);
         if(!producer)   return;
-        
-        this.peerToProducer.set(peerId,producer);
+
+        this.peerToProducer.set(peerId,[...(this.peerToProducer.get(peerId) ?? [] ),producer]);
 
         return producer.id;
     }

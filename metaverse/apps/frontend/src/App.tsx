@@ -9,7 +9,7 @@ function App() {
   return (
     <>
         
-        <Game token={token} spaceId={spaceId}/>
+      <Game token={token} spaceId={spaceId}/>
       
     </>
   )

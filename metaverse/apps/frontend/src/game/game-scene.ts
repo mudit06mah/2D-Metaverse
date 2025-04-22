@@ -17,7 +17,6 @@ export class GameScene extends Scene {
     D: Phaser.Input.Keyboard.Key
   }
   private direction : Direction = Direction.NONE;
-  //private elements: Phaser.GameObjects.Sprite[] = [];
   private playerTexts: Map<string, Phaser.GameObjects.Text> = new Map();
   private wsClient: WebSocket | null = null;
   private token?: string;
@@ -25,22 +24,25 @@ export class GameScene extends Scene {
   private space?: Space;
   private moveTimer = 0;
   private readonly MOVE_DELAY = 100;// Throttle movement updates
-  private readonly TILE_SIZE = 64;
+  private readonly TILE_SIZE = 16;
   private coordMap: Map<string,string | null> = new Map();
   private proximityList: Set<string> = new Set();
   private mediasoupClient?: MediasoupClient
+  private onUserIdRecieved ?: (userId: string) => void;
+  private map?: Phaser.Tilemaps.Tilemap;
 
   constructor() {
     super({ key: "GameScene" })
   }
 
-  init(data: { wsClient: WebSocket; token: string; spaceId: string }) {
+  init(data: { wsClient: WebSocket; token: string; spaceId: string, onUserIdRecieved: (userId:string) => void }) {
     this.wsClient = data.wsClient;
     if(!this.wsClient)  return;
 
     this.token = data.token;
     this.spaceId= data.spaceId;
-    this.setupWebSocket()
+    this.onUserIdRecieved = data.onUserIdRecieved;
+    this.setupWebSocket();
   }
 
   setMediasoupClient(client: MediasoupClient) {
@@ -61,7 +63,7 @@ export class GameScene extends Scene {
         clearInterval(interval);
       }
     },5000)
-    console.log(this.wsClient.readyState);
+
   }
 
   private handleWebSocketMessage(message: WebSocketMessage) {
@@ -128,18 +130,19 @@ export class GameScene extends Scene {
 
     console.log("SPACE JOINED");
     if(!this.wsClient)  return;
-    this.mediasoupClient = new MediasoupClient(this.wsClient,this.space.id,payload.userId);
 
     //initialize coord map:
-    this.createCoordMap(payload.space.height,payload.space.width,payload.users);
+    this.createCoordMap(this.space.height,this.space.width,payload.users);
 
-    this.currentPlayerId = payload.userId
-    console.log("users",payload.users);
-    console.log(payload.userId);
+    this.currentPlayerId = payload.userId;
+    if(this.onUserIdRecieved) this.onUserIdRecieved(payload.userId);
 
     // Create current player
     this.createPlayer(payload.userId, payload.username, payload.spawn.x, payload.spawn.y, payload.avatar, true);
     this.avatar = payload.avatar;
+
+    this.loadTiledMap();
+
 
     // Create other players
     payload.users.forEach((user) => {
@@ -148,7 +151,7 @@ export class GameScene extends Scene {
       }  
     });
 
-   this.loadTiledMap();
+   
   }
 
   private createCoordMap(height:number,width:number,users: Player[]){
@@ -162,7 +165,7 @@ export class GameScene extends Scene {
   } 
 
   private handleUserJoined(payload: Player) {
-    console.log("User Joined:",payload.userId);
+    console.log("User Joined:",payload.username);
     this.coordMap.set(JSON.stringify([payload.x,payload.y]),payload.userId);
     if(payload.userId !== this.currentPlayerId)
       this.createPlayer(payload.userId, payload.username, payload.x, payload.y, payload.avatar)
@@ -224,6 +227,10 @@ export class GameScene extends Scene {
 
   private handleUserLeft(payload: { userId: string }) {
     const player = this.players.get(payload.userId)
+    const oldX = player?.x!/this.TILE_SIZE;
+    const oldY = player?.y!/this.TILE_SIZE;
+    this.coordMap.set(JSON.stringify([oldX,oldY]),null);
+    
     if (player) {
       player.destroy()
       this.players.delete(payload.userId)
@@ -279,35 +286,46 @@ export class GameScene extends Scene {
 
     //create animation:
     this.load.once(Phaser.Loader.Events.COMPLETE, () => {
-            // Create animations only if they don't exist
-            this.createPlayerAnimations(userId);
+        // Create animations only if they don't exist
+        this.createPlayerAnimations(userId);
 
-            // Now that animations are loaded, create the sprite
-            const sprite = this.add.sprite(x * this.TILE_SIZE, y * this.TILE_SIZE, `${userId}-idle`);
-            sprite.setScale(2);
-            sprite.play(`${userId}-idle-down`);
+        // Now that animations are loaded, create the sprite
+        const sprite = this.add.sprite(x * this.TILE_SIZE, y * this.TILE_SIZE, `${userId}-idle`);
+        sprite.setScale(2);
+        sprite.play(`${userId}-idle-down`);
+  
+        if (isCurrent) {
+          this.physics.add.existing(sprite);
+          const body = sprite.body as Phaser.Physics.Arcade.Body;
+          //body.setCollideWorldBounds(true);
+          // Set a smaller collision box for better precision
+          body.setSize(12, 12);  // Adjust these values as needed
+          body.setOffset(2, 16); // Adjust to center the collision box
+      }
+        
 
-            //add Text:
-            const text = this.add.text(
-              x*this.TILE_SIZE,
-              y*this.TILE_SIZE+40,
-              isCurrent? "You":username,
-              {
-                fontSize: isCurrent ? "22px" : "14px",
-                color: isCurrent ? "#ebb00e" : "#000000",
-              },
-            );
-            text.setOrigin(0.5);
+        //add Text:
+        const text = this.add.text(
+          x*this.TILE_SIZE,
+          y*this.TILE_SIZE+40,
+          isCurrent? "You":username,
+          {
+            fontSize: isCurrent ? "22px" : "14px",
+            color: isCurrent ? "#ebb00e" : "#000000",
+          },
+        );
+        text.setOrigin(0.5);
 
-            if(isCurrent){
-              this.currentPlayer = sprite;
-              this.currentPlayerText = text;
-              this.cameras.main.startFollow(this.currentPlayer);
-            }
-            else{
-              this.players.set(`${userId}`,sprite);
-              this.playerTexts.set(`${userId}`,text);
-            }
+        if(isCurrent){
+          this.currentPlayer = sprite;
+          this.currentPlayerText = text;
+          this.cameras.main.startFollow(this.currentPlayer);
+        }
+        else{
+          this.players.set(`${userId}`,sprite);
+          this.playerTexts.set(`${userId}`,text);
+          sprite.setDepth(2);
+        }
     });
         
     this.load.start();
@@ -347,7 +365,7 @@ export class GameScene extends Scene {
               this.anims.create({
                   key: `${userId}-${anim.key}`,
                   frames: this.anims.generateFrameNumbers(`${userId}-run`, { start: anim.start, end: anim.end }),
-                  frameRate: 12,
+                  frameRate: 20,
                   repeat: 1
               });
           }
@@ -357,8 +375,8 @@ export class GameScene extends Scene {
 
   private loadTiledMap() {
 
-    this.load.image("interior-tiles", "/assets/tiles/Interiors_free_16x16.png");
-    this.load.image("room-tiles", "/assets/tiles/Room_Builder_free_16x16.png");
+    this.load.image("interior-tiles", "/assets/tiles/32x32/Interiors_free_32x32.png");
+    this.load.image("room-tiles", "/assets/tiles/32x32/Room_Builder_free_32x32.png");
     this.load.tilemapTiledJSON("map","/assets/testMap.json");
     this.load.once(Phaser.Loader.Events.COMPLETE,()=>{
       this.createTiledMap();
@@ -367,18 +385,47 @@ export class GameScene extends Scene {
 
   private createTiledMap(){
     const map = this.make.tilemap({key: "map"});
-    const interior_tileset = map.addTilesetImage("Interiors_free_16x16","interior-tiles");
-    const floor_tileset = map.addTilesetImage("Room_Builder_free_16x16","room-tiles");
-    const flooring  = map.createLayer("flooring",floor_tileset!);
+    this.map = map;
+    const interior_tileset = map.addTilesetImage("Interiors_free_32x32","interior-tiles");
+    const floor_tileset = map.addTilesetImage("Room_Builder_free_32x32","room-tiles");
+    const flooring  = map.createLayer("Flooring",floor_tileset!);
     const interior = map.createLayer("Interior",interior_tileset!);
     const walls = map.createLayer("Walls", floor_tileset!);
+    const interior2 = map.createLayer("Interior-2", floor_tileset!);
+    
+    //add collisions:
+    walls?.setCollisionByProperty({collides: true});
+    interior?.setCollisionByProperty({collides: true});
+    interior2?.setCollisionByProperty({collides: true});
+
+    //depth ordering:
+    flooring?.setDepth(0);
+    this.currentPlayer?.setDepth(1);
+    walls?.setDepth(2);
+    interior?.setDepth(0);
+    interior2?.setDepth(0);
+    /*
+    const debugGraphics = this.add.graphics().setAlpha(0.7);
+    interior?.renderDebug(debugGraphics,{
+      tileColor: null,
+      collidingTileColor: new Phaser.Display.Color(243,234,48,255),
+      faceColor: new Phaser.Display.Color(40,39,37,255)
+    });
+    */
+    if(this.currentPlayer){
+      this.physics.add.collider(this.currentPlayer,interior!);
+      this.physics.add.collider(this.currentPlayer,walls!);
+      this.physics.add.collider(this.currentPlayer,interior2!);
+    }
+    
   }
 
   checkPlayersInProximity(newX: number, newY:number ){
+
     const newProximityList: Set<any> = new Set();
-    //check 6x6 area:
-    for(let i=-3;i<=3;i++){
-      for(let j=-3;j<=3;j++){
+    //check 10x10 area:
+    for(let i=-5;i<=5;i++){
+      for(let j=-5;j<=5;j++){
         if(this.coordMap.get( JSON.stringify([newX+i,newY+j]) )) {
           newProximityList.add( this.coordMap.get( JSON.stringify([newX+i,newY+j]) ) );
         }
@@ -386,12 +433,15 @@ export class GameScene extends Scene {
     }
 
     //add users in proximity:
-    const addUsers: string[] = [];
+    const addUsers: {userId:string,username:string}[] = [];
+
     newProximityList.forEach((userId)=>{
-      if(!this.proximityList.has(userId)){
+      const username = this.playerTexts.get(userId)?.text;
+    
+      if(!this.proximityList.has(userId) && username){
         //consume new users:
         console.log("IN PROXIMITY:",userId);
-        addUsers.push(userId);
+        addUsers.push({userId,username});
       }
     })
 
@@ -407,9 +457,10 @@ export class GameScene extends Scene {
       )
     }    
 
-    //remove  users not in proximity:
+    //remove users not in proximity:
     const removeUsers: string[] = [];
     this.proximityList.forEach((userId)=>{
+      
       if(!newProximityList.has(userId)){
         //remove consumers:
         console.log("LEFT PROXIMITY:",userId);
@@ -431,10 +482,46 @@ export class GameScene extends Scene {
 
     //update proximity List:
     this.proximityList = newProximityList;
-    //console.log(this.proximityList);
   }
 
-
+  private isTileWalkable(x: number, y: number): boolean {
+    if(!this.map) return false;
+    // Get the tile map and tileset
+    const map = this.map
+    const interiorLayer = map.getLayer("Interior");
+    const wallsLayer = map.getLayer("Walls");
+    const interior2Layer = map.getLayer("Interior-2");
+    
+    // Check if the tiles at the target position are walkable
+    if (interiorLayer) {
+        const interiorTile = map.getTileAt(x, y, false, "Interior");
+        if (interiorTile?.properties?.collides) {
+            return false;
+        }
+    }
+    
+    if (wallsLayer) {
+        const wallTile = map.getTileAt(x, y, false, "Walls");
+        if (wallTile?.properties?.collides) {
+            return false;
+        }
+    }
+    
+    if (interior2Layer) {
+        const interior2Tile = map.getTileAt(x, y, false, "Interior-2");
+        if (interior2Tile?.properties?.collides) {
+            return false;
+        }
+    }
+    
+    // Also check if there's already a player at this position
+    if (this.coordMap.get(JSON.stringify([x, y]))) {
+        return false;
+    }
+    
+    return true;
+  }
+  
   update(time: number) {
     if (!this.currentPlayer || !this.currentPlayerId) return;
   
@@ -445,6 +532,7 @@ export class GameScene extends Scene {
       let newX = currentX;
       let newY = currentY;
       let moved = false;
+      let keyPressDown = false;
       let previousDirection = this.direction;
   
       const sprite = this.currentPlayer;
@@ -453,18 +541,22 @@ export class GameScene extends Scene {
       if (this.cursors?.left.isDown || this.wasd?.A.isDown) {
         newX = currentX - 1;
         moved = true;
+        keyPressDown = true;
         this.direction = Direction.LEFT;
       } else if (this.cursors?.right.isDown || this.wasd?.D.isDown) {
         newX = currentX + 1;
         moved = true;
+        keyPressDown = true;
         this.direction = Direction.RIGHT;
       } else if (this.cursors?.up.isDown || this.wasd?.W.isDown) {
         newY = currentY - 1;
         moved = true;
+        keyPressDown = true;
         this.direction = Direction.UP;
       } else if (this.cursors?.down.isDown || this.wasd?.S.isDown) {
         newY = currentY + 1;
         moved = true;
+        keyPressDown = true;
         this.direction = Direction.DOWN;
       }
 
@@ -475,51 +567,66 @@ export class GameScene extends Scene {
       if (sprite.getData('animTimer')) {
         this.time.removeEvent(sprite.getData('animTimer'));
       }
-  
+      
+
       if (moved) {
-        // Play run animation
-        sprite.play(`${userId}-run-${this.direction}`);
-        
-        // Send movement to server
-
-        this.wsClient!.send(
-          JSON.stringify({
-            class: "game",
-            type: "move",
-            payload: {
-              userId: this.currentPlayerId,
-              coords: { x: newX, y: newY },
-              direction: this.direction
-            },
-          }),
-        );
-
-        // Update local position
-        sprite.setPosition(newX * this.TILE_SIZE, newY * this.TILE_SIZE);
-        
-        // Update username text position
-        this.currentPlayerText?.setPosition(newX * this.TILE_SIZE, newY * this.TILE_SIZE + 40);
+        // Check if the target position is walkable
+        if (this.isTileWalkable(newX, newY)) {
+            
+            // Play run animation
+            sprite.play(`${userId}-run-${this.direction}`);
+            
+            // Update coordinate map
+            this.coordMap.set(JSON.stringify([currentX, currentY]), null);
+            this.coordMap.set(JSON.stringify([newX, newY]), this.currentPlayerId);
+            
+            // Check players in proximity
+            this.checkPlayersInProximity(newX, newY);
+            
+            // Update local position
+            sprite.setPosition(newX * this.TILE_SIZE, newY * this.TILE_SIZE);
+            
+            // Update username text position
+            this.currentPlayerText?.setPosition(newX * this.TILE_SIZE, newY * this.TILE_SIZE + 40);
+            
+            // Send movement to server
+            this.wsClient!.send(
+                JSON.stringify({
+                    class: "game",
+                    type: "move",
+                    payload: {
+                        userId: this.currentPlayerId,
+                        coords: { x: newX, y: newY },
+                        direction: this.direction
+                    },
+                }),
+            );
+            
+            // Set a timer to switch to idle animation after movement stops
+            const timer = this.time.delayedCall(200, () => {
+                sprite.play(`${userId}-idle-${this.direction}`);
+            });
+            
+            // Store the timer reference
+            sprite.setData('animTimer', timer);
+        } else {
+            if(!keyPressDown)
+              sprite.play(`${userId}-idle-${this.direction}`);
+            else
+            sprite.play(`${userId}-run-${this.direction}`);
+        }
         
         // Store the last direction
         sprite.setData('lastDirection', this.direction);
         
-        // Set a timer to switch to idle animation after movement stops
-        const timer = this.time.delayedCall(200, () => {
-          console.log("playing idle")
-          sprite.play(`${userId}-idle-${this.direction}`);
-        });
-        
-        // Store the timer reference
-        sprite.setData('animTimer', timer);
-        
         this.moveTimer = time + this.MOVE_DELAY;
       } else if (previousDirection !== Direction.NONE) {
-        // If we were moving but now stopped, play idle animation
-        sprite.play(`${userId}-idle-${this.direction}`);
+          sprite.play(`${userId}-idle-${this.direction}`);
       } else if (this.direction === Direction.NONE) {
-        // Default idle animation if no direction set
-        sprite.play(`${userId}-idle-down`);
+          sprite.play(`${userId}-idle-down`);
       }
+
+
     }
   }
 }

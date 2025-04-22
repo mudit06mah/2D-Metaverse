@@ -127,11 +127,11 @@ export class Peer{
         this.producers.delete(producerId);
     }
 
-    removeConsumer(consumerId: string) {
-        const consumer = this.consumers.get(consumerId);
+    removeConsumer(producerId: string) {
+        const consumer = this.consumers.get(producerId);
         if (consumer) {
             consumer.close();
-            this.consumers.delete(consumerId);
+            this.consumers.delete(producerId);
         }
     }
     
