@@ -3,6 +3,8 @@
 
 A scalable, full-stack 2D virtual environment application. This project integrates a robust game engine for spatial navigation with high-performance WebRTC infrastructure for real-time video conferencing, allowing users to interact naturally within custom virtual spaces.
 
+Demo: https://www.linkedin.com/feed/update/urn:li:activity:7320477036731355136/
+
 ## Infrastructure Architecture
 <img width="1826" height="766" alt="image" src="https://github.com/user-attachments/assets/bb3d0026-291f-4691-89e8-cc7654a7ff46" />
 
